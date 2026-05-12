@@ -1,0 +1,19 @@
+spring:
+  application:
+    name: analytics-service
+  elasticsearch:
+    rest:
+      uris: http://localhost:9200
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: analytics-service
+      auto-offset-reset: earliest
+
+server:
+  port: 8090
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/

@@ -1,0 +1,33 @@
+spring:
+  application:
+    name: investigation-service
+  datasource:
+    url: jdbc:postgresql://localhost:5432/ai_wallet_investigation
+    username: postgres
+    password: postgres
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  elasticsearch:
+    rest:
+      uris: http://localhost:9200
+  ai:
+    openai:
+      api-key: ${OPENAI_API_KEY:sk-test-key}
+      model: gpt-4
+    vectorstore:
+      pgvector:
+        index-type: HNSW
+  kafka:
+    bootstrap-servers: localhost:9092
+
+server:
+  port: 8087
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/

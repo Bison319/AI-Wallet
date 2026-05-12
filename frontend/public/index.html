@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#667eea" />
+    <meta
+      name="description"
+      content="AI-Native Digital Wallet Platform - Intelligent Financial Management"
+    />
+    <title>AI Wallet Platform</title>
+  </head>
+  <body>
+    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <div id="root"></div>
+  </body>
+</html>
+import React from 'react';
+import App from './App';
+import './index.css';
+
+/**
+ * Application Entry Point
+ */
+const root = document.getElementById('root');
+if (root) {
+  root.innerHTML = '';
+  const app = document.createElement('div');
+  root.appendChild(app);
+}
+
+export default App;

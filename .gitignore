@@ -1,0 +1,54 @@
+# Global Git Ignore
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Java
+*.class
+*.jar
+target/
+.classpath
+.project
+.settings/
+.factorypath
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+build/
+dist/
+
+# Maven
+.m2/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+venv/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Temporary
+temp/
+tmp/
+*.tmp

@@ -1,0 +1,351 @@
+---
+# Kubernetes Deployment for API Gateway
+# Demonstrates production-grade Kubernetes configuration
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ai-wallet-platform
+
+---
+# ConfigMap for API Gateway configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-gateway-config
+  namespace: ai-wallet-platform
+data:
+  application.yml: |
+    spring:
+      application:
+        name: api-gateway
+      cloud:
+        gateway:
+          default-filters:
+            - name: RateLimiting
+              args:
+                requestsPerSecond: 100
+      redis:
+        host: redis-service
+        port: 6379
+        database: 0
+    server:
+      port: 8080
+    logging:
+      level:
+        root: INFO
+        com.aiwalletplatform: DEBUG
+
+---
+# Secret for JWT and sensitive configuration
+apiVersion: v1
+kind: Secret
+metadata:
+  name: api-gateway-secrets
+  namespace: ai-wallet-platform
+type: Opaque
+data:
+  jwt-secret: bXktc3VwZXItc2VjcmV0LWtleS1mb3ItcHJvZHVjdGlvbi11c2UtdmVyeS1sb25nLXN0cmluZy1oZXJlLWF0LWxlYXN0LTMyLWNoYXJhY3RlcnM=  # base64 encoded
+  openai-api-key: c2steW91ci1hcGkta2V5LWhlcmU=  # base64 encoded
+
+---
+# Service for API Gateway (LoadBalancer)
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway-service
+  namespace: ai-wallet-platform
+  labels:
+    app: api-gateway
+    version: v1
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 80
+      targetPort: 8080
+      protocol: TCP
+      name: http
+  selector:
+    app: api-gateway
+
+---
+# Deployment for API Gateway
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: ai-wallet-platform
+  labels:
+    app: api-gateway
+    version: v1
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/actuator/prometheus"
+    spec:
+      # Pod security context
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      
+      # Service account
+      serviceAccountName: api-gateway
+      
+      # Affinity rules
+      affinity:
+        # Pod anti-affinity to spread replicas
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - api-gateway
+                topologyKey: kubernetes.io/hostname
+        
+        # Node affinity (prefer nodes with label)
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 50
+              preference:
+                matchExpressions:
+                  - key: node-type
+                    operator: In
+                    values:
+                      - gateway
+
+      # Init containers to wait for dependencies
+      initContainers:
+        - name: wait-for-redis
+          image: busybox:1.28
+          command: ['sh', '-c', 'until nc -z redis-service 6379; do echo waiting for redis; sleep 2; done']
+
+      # Containers
+      containers:
+        - name: api-gateway
+          image: aiwalletplatform/api-gateway:latest
+          imagePullPolicy: Always
+          
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+
+          # Environment variables
+          env:
+            - name: ENVIRONMENT
+              value: "prod"
+            - name: JAVA_OPTS
+              value: "-XX:+UseG1GC -XX:MaxGCPauseMillis=200"
+            - name: SPRING_REDIS_HOST
+              value: "redis-service"
+            - name: SPRING_REDIS_PORT
+              value: "6379"
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: api-gateway-secrets
+                  key: jwt-secret
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: api-gateway-secrets
+                  key: openai-api-key
+
+          # Resource requests and limits
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+
+          # Security context for container
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+
+          # Liveness probe (is the pod alive?)
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # Readiness probe (is it ready to serve traffic?)
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          # Startup probe (has the app started?)
+          startupProbe:
+            httpGet:
+              path: /actuator/health/startup
+              port: http
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 30
+
+          # Volume mounts
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: app-logs
+              mountPath: /app/logs
+
+      # Volumes
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: app-logs
+          emptyDir: {}
+
+      # Pod termination grace period
+      terminationGracePeriodSeconds: 30
+
+---
+# HorizontalPodAutoscaler
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api-gateway-hpa
+  namespace: ai-wallet-platform
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api-gateway
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 50
+          periodSeconds: 60
+
+---
+# PodDisruptionBudget for high availability
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: api-gateway-pdb
+  namespace: ai-wallet-platform
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: api-gateway
+
+---
+# ServiceAccount
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: api-gateway
+  namespace: ai-wallet-platform
+
+---
+# NetworkPolicy for security
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-gateway-netpol
+  namespace: ai-wallet-platform
+spec:
+  podSelector:
+    matchLabels:
+      app: api-gateway
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow traffic from load balancer/ingress
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    # Allow DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+    # Allow communication with Redis
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Allow communication with other services
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: ai-wallet-platform
+      ports:
+        - protocol: TCP
+          port: 8081  # Identity Service
+        - protocol: TCP
+          port: 8082  # User Service
+        - protocol: TCP
+          port: 8083  # Wallet Service

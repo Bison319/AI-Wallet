@@ -1,0 +1,140 @@
+spring:
+  application:
+    name: api-gateway
+  
+  cloud:
+    gateway:
+      default-filters:
+        - name: RateLimiting
+          args:
+            requestsPerSecond: 100
+        - name: RequestLogging
+        - name: ResponseLogging
+      
+      routes:
+        # Identity Service
+        - id: identity-service
+          uri: lb://identity-service
+          predicates:
+            - Path=/api/v1/auth/**
+          filters:
+            - JwtAuth=false
+        
+        # User Service  
+        - id: user-service
+          uri: lb://user-service
+          predicates:
+            - Path=/api/v1/users/**
+          filters:
+            - JwtAuth=true
+        
+        # Wallet Service
+        - id: wallet-service
+          uri: lb://wallet-service
+          predicates:
+            - Path=/api/v1/wallets/**
+          filters:
+            - JwtAuth=true
+            - RateLimiting=100
+        
+        # Transaction Service
+        - id: transaction-service
+          uri: lb://transaction-service
+          predicates:
+            - Path=/api/v1/transactions/**
+          filters:
+            - JwtAuth=true
+            - RateLimiting=150
+        
+        # Payment Service
+        - id: payment-service
+          uri: lb://payment-service
+          predicates:
+            - Path=/api/v1/payments/**
+          filters:
+            - JwtAuth=true
+        
+        # Fraud Detection Service
+        - id: fraud-detection-service
+          uri: lb://fraud-detection-service
+          predicates:
+            - Path=/api/v1/fraud/**
+          filters:
+            - JwtAuth=true
+        
+        # AI Assistant Service
+        - id: ai-assistant-service
+          uri: lb://ai-assistant-service
+          predicates:
+            - Path=/api/v1/assistant/**
+          filters:
+            - JwtAuth=true
+        
+        # Investigation Service
+        - id: investigation-service
+          uri: lb://investigation-service
+          predicates:
+            - Path=/api/v1/investigations/**
+          filters:
+            - JwtAuth=true
+  
+  # Redis configuration for caching and distributed sessions
+  redis:
+    host: localhost
+    port: 6379
+    database: 0
+    timeout: 60000
+    jedis:
+      pool:
+        max-active: 200
+        max-idle: 100
+        min-idle: 50
+
+server:
+  port: 8080
+  servlet:
+    context-path: /
+
+# JWT Configuration
+jwt:
+  secret: ${JWT_SECRET:my-super-secret-key-for-production-use-very-long-string-here-at-least-32-characters}
+  expiration: 86400000  # 24 hours
+
+# Logging
+logging:
+  level:
+    root: INFO
+    com.aiwalletplatform: DEBUG
+    org.springframework.cloud.gateway: DEBUG
+    org.springframework.security: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: logs/api-gateway.log
+    max-size: 100MB
+    max-history: 30
+
+# Actuator for health checks and metrics
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics,prometheus,env,info
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+  tracing:
+    sampling:
+      probability: 0.1  # Sample 10% of requests
+
+# Application info
+info:
+  app:
+    name: AI Wallet Platform - API Gateway
+    description: Central API Gateway with authentication, rate limiting, and routing
+    version: 1.0.0
